@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="final_project" board="Alchitry Au" language="Lucid" version="3">
+  <files>
+    <src>instruction_rom.luc</src>
+    <component>edge_detector.luc</component>
+    <src>seven_seg.luc</src>
+    <src>ws2812b_writer.luc</src>
+    <src top="true">au_top.luc</src>
+    <src>boolean.luc</src>
+    <component>reset_conditioner.luc</component>
+    <src>memory_unit.luc</src>
+    <component>button_conditioner.luc</component>
+    <src>regfile_unit.luc</src>
+    <src>alu.luc</src>
+    <src>compare.luc</src>
+    <src>control_unit.luc</src>
+    <src>regfile_memory.luc</src>
+    <component>simple_ram.v</component>
+    <src>shifter.luc</src>
+    <src>beta_cpu.luc</src>
+    <component>counter.luc</component>
+    <src>reverser.luc</src>
+    <component>simple_dual_ram.v</component>
+    <component>decoder.luc</component>
+    <component>pn_gen.luc</component>
+    <src>connector_out.luc</src>
+    <src>pc_unit.luc</src>
+    <src>motherboard.luc</src>
+    <src>multi_seven_seg.luc</src>
+    <src>adder.luc</src>
+    <component>pipeline.luc</component>
+    <src>translator_out.luc</src>
+    <constraint>io.acf</constraint>
+    <constraint lib="true">alchitry.acf</constraint>
+    <constraint lib="true">au.xdc</constraint>
+  </files>
+</project>

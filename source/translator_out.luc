@@ -1,0 +1,17 @@
+module translator_out (
+    input in[3],
+    output out[24]
+  ) {
+
+  always {
+    case(in){
+    0: out = h000000;
+    1: out = hFF0000;
+    2: out = h00FF00;
+    3: out = hFFFF00;
+    4: out = hFF00FF;
+    5: out = h0000FF;
+    6: out = h00FFFF;
+    default: out = h000000;
+  }
+}

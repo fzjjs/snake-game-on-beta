@@ -1,0 +1,23 @@
+module connector_out (
+    input clk,
+    input raddr[16],
+    output out[24]
+  ) {
+  const MEMORY_SIZE = 2048;
+  memory_unit memory_unit(#WORDS(MEMORY_SIZE), .clk(clk));
+  translator_out translator;
+  
+  always {
+    memory_unit.instruction_write_enable = b0;
+    memory_unit.instruction_towrite = 32b0;
+    memory_unit.ia = 32b0;
+    
+    memory_unit.waddr = h0000;
+    memory_unit.we = 0;
+    memory_unit.wd = 32b0;
+    memory_unit.raddr = raddr;
+    translator.in = memory_unit.mrd[2:0];
+    out = translator.out;
+    
+  }
+}

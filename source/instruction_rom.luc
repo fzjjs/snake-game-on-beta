@@ -1,0 +1,172 @@
+module instruction_rom #(
+    WORDS = 256 // total instructions in this ROM
+)(
+    input addr[$clog2(WORDS)], // this ROM is WORD addressable
+    output out[32]
+  ) {
+  
+   // Driver code, BR(reset) is the first instruction
+  const INSTRUCTIONS = {
+h77FFFFFD, //0x270: BEQ(R31, 0x268, R31)		
+h77E1FF64, //0x26C: BEQ(R1, 0x000, R31)			ns
+h603F0520, //0x268: LD(R31, 520, R1)     ------Termination stage
+h643F0206, //0x264: ST(R1, 518, R31)
+hC03F0001, //0x260: ADDC(R31, 1, R1)   ----- snake 2 lose
+h77FF0002, //0x25C: BEQ(R31, 0x268, R31)		ns
+h643F0202, //0x258: ST(R1, 514, R31)
+hC03F0001, //0x254: ADDC(R31, 1, R1)   ----- snake 1 lose
+hC18C0002, //0x250: ADDC(R12, 3, R12)
+h77EBFFA9, //0x24C: BEQ(R11, 0x0F4, R31)		ns
+hC18C0002, //0x248: ADDC(R12, 2, R12)
+hD5630014, //0x244: COMLTC(R3, 20, R11)
+h77EBFFAC, //0x240: BEQ(R11, 0x0F4, R31)		ns
+hC19F0001, //0x23C: ADDC(R31, 1, R12)
+hD563000A, //0x238: COMLTC(R3, 10, R11)
+h67E10000, //0x234: ST(R31, 0, R1)        -----eliminate the last part of body if not eat    
+h77FF0001, //0x230: BEQ(R31, 0x238, R31)		ns
+h644A0000, //0x22C: ST(R2, 0, R10)        ----- store the current tail into a new position
+h647F0504, //0x228: ST(R3, 504, R31)    ----- the length of snake add 1 if ate
+hC0630001, //0x224: ADDC(R3, 1, R3)    
+h7BE90004, //0x220: BNE(R9, 0x234, R31)  ----- check whether the snake ate or not	ns
+h7BE4FFF8, //0x21C: BNE(R4, 0x200, R31) ----- if the whole snake is visited, end the iteration  ns
+hC4840001, //0x218: SUBC(R4, 1, R4)
+hC14A0004, //0x214: ADDC(R10, 4, R10) ----- get the position for the new back position
+hC0220000, //0x210: ADDC(R2, 0, R1) ----- make the current back poition into front position
+h642A0000, //0x20C: ST(R1, 0, R10)     ----- replace the slot of back position by front position
+h64E10000, //0x208: ST(R7, 0, R1)       ----- front position copy the content of back position       
+h60E20000, //0x204: LD(R2, 0, R7)       ----- load the content of back position
+h604A0000, //0x200: LD(R10, 0, R2)     ----- load the position of back position
+hC15F0484, //0x1FC: ADDC(R31, 484, R10) ---- the iteration start after this line.
+hC0830000, //0x1F8: ADDC(R3, 0, R4) 
+h7BE90016, //0x1F4: BNE(R9, 0x250, R31)		
+hC5280005, //0x1F0: SUBC(R8, 5, R9)
+h77E8FFC0, //0x1EC: BEQ(R8, 0xF0, R31) ---- check if it is empty	
+h61010000, //0x1E8: LD(R1, 0, R8)  ---- load the content for next position, to check it is empty or food
+hC0220040, //0x1E4: ADDC(R2, 40, R1) ---- the operation can only be 3 now, move one step down
+h77FF0001, //0x1E0: BEQ(R31, 0x1E8, R31)	ns
+hC0220004, //0x1DC: ADDC(R2, 4, R1) ---- move one step right
+h7BE60002, //0x1D8: BNE(R6, 0x1E4, R31)	ns
+hC4C10002, //0x1D4: SUBC(R1, 2, R6)   ---- determine whether the operation is 2
+h77FF0005, //0x1D0: BEQ(R31, 0x1E8, R31)	ns
+hC4220028, //0x1CC: SUBC(R2, 40, R1) ---- move one step up
+h7BE60002, //0x1C8: BNE(R6, 0x1D4, R31)	ns
+hC4C10001, //0x1C4: SUBC(R1, 1, R6)   ---- determine whether the operation is 1
+h77FF0009, //0x1C0: BEQ(R31, 0x1E8, R31) ---- jump out of the if-else    ns
+hC4220004, //0x1BC: SUBC(R2, 4, R1)   ---- move one step left
+h7BE10002, //0x1B8: BNE(R1, 0x1C4, R31) --- determine whether the operation is 0    ns
+h7BE5FFCF, //0x1B4: BNE(R5, 0x0F4, R31)   ---- jump to the other snakes if there is extra jumps ns
+hC4A50001, //0x1B0: SUBC(R5, 1, R5)
+h607F0508, //0x1AC: LD(R31, 508, R3)
+h605F0484, //0x1A8: LD(R31, 484, R2)
+h603F0510, //0x1A4: LD(R31, 510, R1)  ---- at the first of loop, load necessary attributes(SECOND SNAKE)
+hC0A50003, //0x1A0: ADDC(R5, 3, R5)   ---- the speed slow 2 if length > 20
+h77EB0001, //0x19C: BEQ(R11, 0x1A4, R31)	ns
+hC0A50002, //0x198: ADDC(R5, 2, R5)        ---- the speed slow 1 if length >10
+hD5630014, //0x194: COMLTC(R3, 20, R11)
+h77EB0004, //0x190: BEQ(R11, 0x1A4, R31)	ns
+hC0A50001, //0x18C: ADDC(R5, 1, R5)        ---- add the jump back
+hD563000A, //0x188: COMLTC(R3, 10, R11) 
+h67E10000, //0x184: ST(R31, 0, R1)        -----eliminate the last part of body if not eat    
+h77FF0001, //0x180: BEQ(R31, 0x188, R31)	ns
+h644A0000, //0x17C: ST(R2, 0, R10)        ----- store the current tail into a new position
+h647F01F8, //0x178: ST(R3, 504, R31)    ----- the length of snake add 1 if ate
+hC0630001, //0x174: ADDC(R3, 1, R3)    
+h7BE90004, //0x170: BNE(R9, 0x184, r31)  ----- check whether the snake ate or not     ns
+h7BE4FFF8, //0x16C: BNE(R4, 0x150, R31) ----- if the whole snake is visited, end the iteration ns
+hC4840001, //0x168: SUBC(R4, 1, R4)
+hC14A0004, //0x164: ADDC(R10, 4, R10) ----- get the position for the new back position
+hC0220000, //0x160: ADDC(R2, 0, R1) ----- make the current back poition into front position
+h642A0000, //0x15C: ST(R1, 0, R10)     ----- replace the slot of back position by front position
+h64E10000, //0x158: ST(R7, 0, R1)       ----- front position copy the content of back position       
+h60E20000, //0x154: LD(R2, 0, R7)       ----- load the content of back position
+h604A0000, //0x150: LD(R10, 0, R2)     ----- load the position of back position
+hC15F0404, //0x14C: ADDC(R31, 404, R10) ---- the iteration start after this line.
+hC0830000, //0x148: ADDC(R3, 0, R4) 
+h7BE90254, //0x144: BNE(R9, 0x254, R31)	ns
+hC5280005, //0x140: SUBC(R8, 5, R9)
+h77E8F148, //0x13C: BEQ(R8, 148, R31) ---- check if it is empty    ns
+h61010000, //0x138: LD(R1, 0, R8)        ---- load the content for next position, to check it is empty or food
+hC0220028, //0x134: ADDC(R2, 40, R1) ---- the operation can only be 3 now, move one step down
+h77FF0001, //0x130: BEQ(R31, 0x138, R31)	ns
+hC0220004, //0x12C: ADDC(R2, 4, R1) ---- move one step right
+h7BE60002, //0x128: BNE(R6, 0x134, R31)	ns
+hC4C10002, //0x124: SUBC(R1, 2, R6)   ---- determine whether the operation is 2
+h77FF0005, //0x120: BEQ(R31, 0x138, R31)	ns
+hC4220040, //0x11C: SUBC(R2, 40, R1) ---- move one step up
+h7BE60002, //0x118: BNE(R6, 0x124, R31)      ns
+hC4C10001, //0x114: SUBC(R1, 1, R6)   ---- determine whether the operation is 1
+h77FF0009, //0x110: BEQ(R31, 0x138, R31) ---- jump out of the if-else       ns
+hC4220004, //0x10C: SUBC(R2, 4, R1)   ---- move one step left
+h7BE10002, //0x108: BNE(R1, 0x114, R31) --- determine whether the operation is 0     ns
+h7BE50027, //0x104: BNE(R5, 0x1A4, R31) ---- jump to the other snakes if there is extra jumps   ns
+hC4A50001, //0x100: SUBC(R5, 1, R5)
+h607F0504, //0x0FC: LD(R31, 504, R3)
+h605F0404, //0x0F8: LD(R31, 404, R2)
+h603F050C, //0x0F4: LD(R31, 50C, R1)  ---- at the first of loop, load necessary attributes(FIRST SNAKE)
+hC19F0001, //0x0F0: ADDC(R31, 1, R12) ---- set the initial speed be 1
+hC0BF0001, //0x0EC: ADDC(R31, 1, R5)
+h643F0510, //0x0E8: ST(R1, 510, R31) ---- set the current operation be 1
+h643F050C, //0x0E4: ST(R1, 50C, R31)
+hC4210001, //0x0E0: SUBC(R1, 1, R1)
+h643F0508, //0x0DC: ST(R1, 508, R31) ---- set the length of snakes be 2
+h643F0504, //0x0D8: ST(R1, 504, R31)
+hC03F0002, //0x0D4: ADDC(R31, 2, R1)
+h643F0488, //0x0D0: ST(R1, 488, R31) ---- initialize the position for two snakes' first body
+h64410000, //0x0CC: ST(R2, 0, R1)
+hC05F0004, //0x0C8: ADDC(R31, 4, R2)
+hC03F0248, //0x0C4: ADDC(R31, 248, R1)
+h643F0408, //0x0C0: ST(R1, 408, R31)
+h64410000, //0x0BC: ST(R2, 0, R1)
+hC05F0002, //0x0B8: ADDC(R31, 2, R2)
+hC03F027C, //0x0B4: ADDC(R31, 27C, R1)
+h643F0484, //0x0B0: ST(R1, 484, R31) ---- initialize the position for two snakes' head
+h64410000, //0x0AC: ST(R2, 0, R1)
+hC05F0002, //0x0A8: ADDC(R31, 2, R2)
+hC03F0208, //0x0A4: ADDC(R31, 208, R1)
+h643F0404, //0x0A0: ST(R1, 404, R31)
+h64410000, //0x09C: ST(R2, 0, R1)
+hC05F0001, //0x098: ADDC(R31, 1, R2)
+hC03F023C, //0x094: ADDC(R31, 23C, R1)
+h64410000, //0x090: ST(R2, 0, R1)       ----store 5 to the position of food
+hC05F0005, //0x08C: ADDC(R31, 5, R2)
+h77E2FFFD, //0x088: BEQ(R2, 0x080, R31) --- if not zero, wait it to be 0		ns
+h60410000, //0x084: LD(R1, 0, R2)      ----- load the content of the position of food, to ensure it is 0
+h603F0524, //0x080: LD(R31, 524, R1) ----- load the position of food
+h77E1FFFE, //0x07C: BEQ(R1, 0x078, R31) -----after this line, the game start	ns
+h603F051C, //0x078: LD(R31, 51C, R1) -----determine the game should start or not
+hC07F0000, //0x074: ADDC(R31, 0, R3)
+hC05F0000, //0x070: ADDC(R31, 0, R2)
+hC03F0000, //0x06C: ADDC(R31, 0, R1)-----set the value of registers be 0
+h7BE3FFFC, //0x068: BNE(R3, 0x05C, R31)					ns
+hC46203C0, //0x064: SUBC(R2, 3C0, R3)----F0*4
+h64220000, //0x060: ST(R1, 0, R2)
+hC0420040, //0x05C: ADDC(R2, 40, R2)
+hC05F0040, //0x058: ADDC(R31, 40, R2)-----set the right line be 6
+h7BE3FFFC, //0x054: BNE(R3, 0x048, R31)					ns
+hC4620384, //0x050: SUBC(R2, 384, R3)----E1*4
+h64220000, //0x04C: ST(R1, 0, R2)
+hC0420040, //0x048: ADDC(R2, 40, R2)
+hC05F0004, //0x044: ADDC(R31, 4, R2)			| set the left line be 6
+h7BE3FFFC, //0x040: BNE(R3, 0x034, R31)		        	 	 ns
+hC4620400, //0x03C: SUBC(R2, 400, R3)			        
+h64220000, //0x038: ST(R1, 0, R2)
+hC0420004, //0x034: ADDC(R2, 4, R2)
+hC03F0006, //0x030: ADDC(R31, 6, R1)			|set blocks in the last line be 6
+hC3FF0000, //0x02C: ADDC(R31, 0, R31)
+h7BE3FFFC, //0x028: BNE(R3, 0x01C, R31)		        	     		ns
+hC46203C0, //0x024: SUBC(R2, 3C0, R3)		| 240 in dec           
+h64220000, //0x020: ST(R1, 0, R2)
+hC0420004, //0x01C: ADDC(R2, 4, R2)
+hC03F0000, //0x018: ADDC(R31, 0, R1)			| set blocks before last line be 0
+h7BE3FFFC, //0x014: BNE(R3, 0x008, R31)						ns
+hC4620040, //0x010: SUBC(R2, 40, R3)			| 64 in dec
+h64220000, //0x00C: ST(R1, 0, R2)
+hC0420004, //0x008: ADDC(R2, 4, R2)
+hC05F0000, //0x004: ADDC(R31, 0, R2)
+hC03F0006 //0x000: ADDC(R31, 6, R1)           	| initialization start here, set the first line be 6
+  };
+
+  always {
+    out = INSTRUCTIONS[addr];
+  }
+}

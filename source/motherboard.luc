@@ -1,0 +1,253 @@
+module motherboard (
+    input clk,  // clock
+    input rst,  // reset
+    input irq[3],
+    input slowclk, 
+    output id[32],
+    output ia[32],
+    output ma[32],  // ALU output / EA
+    output mrd[32], // Mem[EA]
+    output mwd[32], // RD2 output 
+    output output_buffer[32],
+    output input_buffer[32],
+    output debug[4][16],
+    
+    input button_in1[4],   // user input for first snake
+    input button_in2[4],   // user input for second snake
+    
+    input start_game,
+    input restart_game,
+    
+    output outled,
+    output led_data[3]
+    
+  ) {
+
+  // Beta CPU
+  beta_cpu beta(.clk(clk));
+  
+  // setup and instantiate memory unit and instruction ROM
+  const MEMORY_SIZE = 2048;
+  instruction_rom instruction_unit(#WORDS(MEMORY_SIZE));
+  memory_unit memory_unit(#WORDS(MEMORY_SIZE), .clk(clk)); 
+  
+  // prepare output buffer
+  dff system_output_buffer[32](.clk(clk), .rst(rst)); // 32 bit beta output buffer, hardwired to always read memory_unit value at byte address 0xC
+  // prepare input buffer
+  dff system_input_buffer[32](.clk(clk), .rst(rst)); // 32 bit beta input buffer, hardwired to always write memory_unit value at byte address 0x10
+  // counter to write instructions from ROM to instruction memory
+  dff writer_counter[$clog2(MEMORY_SIZE)](.clk(clk));
+  fsm motherboard(.clk(clk)) = {INSTRUCTIONLOAD, RUN, OUTPUT, UPDATE_INPUT};
+  fsm state(.clk(clk), .rst(rst)) = {IDLE, LOAD};
+  fsm input_state(.clk(clk)) = {INPUT1, INPUT2, START, RESTART, FOOD};
+  
+  // orange(6) green(5) yellow(4) purple(3) red(2) blue(1) NIL(0)
+  const LEDCOLOR = {24h00FFFF, 24h0000FF, 24hFF00FF, 24hFFFF00, 24h00FF00, 24hFF0000, 24h000000};
+  
+  //1st snake input
+  dff buffer1[32](.clk(clk));
+  //2nd snake input
+  dff buffer2[32](.clk(clk));
+  //start game signal
+  dff buffers[32](.clk(clk));
+  //restart game signal
+  dff bufferr[32](.clk(clk));
+  //food
+  pn_gen food(.clk(clk), .rst(rst));
+  
+   
+  
+  //Deals with the led matrix
+  ws2812b_writer led_strip(.clk(clk), .rst(rst));
+  reverser index_reverser(.clk(clk), .rst(rst));
+  dff current_data[3](.clk(clk));
+  
+  always {
+    instruction_unit.addr = 0; // always set to 0 initially
+    beta.irq = |irq; // IRQ as long as any of of the buttons[2:0] is pressed
+    
+    // store the button press to input buffer 
+    if (|irq){
+      if (irq[0]){
+            system_input_buffer.d = 32hB0;
+      }
+      else if (irq[1]){
+            system_input_buffer.d = 32hB1;
+      }
+      else if (irq[2]){
+            system_input_buffer.d = 32hB2;
+      }
+    }
+    
+    beta.slowclk = slowclk; 
+    beta.rst = rst;
+  
+    // connect memory unit with beta 
+    beta.instruction = memory_unit.id;
+    beta.mem_data_input = memory_unit.mrd;
+    memory_unit.ia = beta.ia[31:0]; 
+    memory_unit.wd = beta.mem_data_output; 
+    memory_unit.we = beta.wr; 
+    memory_unit.waddr = beta.mem_data_address[31:0]; 
+    memory_unit.raddr = beta.mem_data_address[31:0]; 
+    
+    // turn off instruction loading
+    memory_unit.instruction_write_enable = b0;
+    memory_unit.instruction_towrite = 32b0;
+    
+    // set led matrix and reverser
+    led_strip.update = 0;
+    led_strip.clear = 0;
+    //led_strip.color = LEDCOLOR[memory_unit.mrd[2:0]];
+    index_reverser.activate = 1;
+    index_reverser.original_pixel_address = 0;
+    index_reverser.writer_pixel_done = 0;
+    outled = led_strip.led; 
+    
+    food.next = 0;
+    food.seed = 100;
+  
+    // Load ROM instructions to RAM first, then run the Beta 
+    case(motherboard.q){
+        // instruction loading
+        motherboard.INSTRUCTIONLOAD:
+            beta.rst = 1;
+            writer_counter.d = writer_counter.q + 1;
+            instruction_unit.addr = writer_counter.q;
+            memory_unit.instruction_towrite = instruction_unit.out;
+            memory_unit.instruction_write_enable = b1;
+            memory_unit.ia = writer_counter.q<<2; // pad with two zeroes to make it byte addressable because memory_unit expects byte addresing ia
+            if ((writer_counter.q + 1) == MEMORY_SIZE){
+                motherboard.d = motherboard.RUN; // wait one more clock cycle to allow the last instruction to be loaded before start execution
+        }
+        
+        motherboard.RUN:
+            // only load output and update input at the the beginning of each "next" instruction cycle 
+            // LOAD_OUTPUT will hijack EA for 2 cycles. At this point, the CPU is not receiving a legitimate Mem[EA] if it is doing a LD/LDR 
+            // However since "next" is more than 2 cycles, it will be fixed by the third cycle (actual EA coming out from beta is plugged into memory unit
+            if (slowclk){
+                motherboard.d = motherboard.OUTPUT;
+            }
+            else{
+                motherboard.d = motherboard.RUN;
+            }
+        
+        motherboard.OUTPUT:
+            //connect the reverser
+            index_reverser.original_pixel_address = led_strip.pixel_address;
+            index_reverser.writer_pixel_done = led_strip.next_pixel;
+            index_reverser.activate = 1;
+            
+            case (state.q){
+            state.IDLE:
+                 // when ram is ready, and led is idling at RESET state, we load the strip
+                 
+                    state.d = state.LOAD;
+                    memory_unit.raddr = h00000004;
+                    led_strip.update = 1;
+                    
+            state.LOAD:
+                // if at the last FPGA clock cycle for this bit, advance the address first because our RAM needs 1 additional clock cycle to work
+                if (led_strip.next_pixel){
+                    index_reverser.original_pixel_address = led_strip.pixel_address + 1;
+                    }
+      
+                    // pass this to ram 
+                memory_unit.raddr = c{index_reverser.effective_pixel_address, 00};
+            
+                    // wait until we are all done in updating our LED;
+                if (led_strip.done){
+                    state.d = state.IDLE;
+                    }
+                led_strip.color = LEDCOLOR[memory_unit.mrd[2:0]];
+                system_output_buffer.d[23:0] = LEDCOLOR[memory_unit.mrd[2:0]]; 
+                outled = led_strip.led;
+                motherboard.d = motherboard.UPDATE_INPUT;
+              }
+        
+        motherboard.UPDATE_INPUT:
+            // always store hardcoded byte address 32h10 (16) for any incoming input each time "next" happens
+            // need 2x original clock cycles for data to be readable at 32h10, plenty of time since "next" is more than 2 cycles
+            case(input_state.q){
+              input_state.INPUT1:
+                  memory_unit.waddr = h50C;
+                  memory_unit.we = 1;
+                  memory_unit.wd = buffer1.q;
+                  input_state.d = input_state.INPUT2;
+              
+              input_state.INPUT2:
+                  memory_unit.waddr = h510;
+                  memory_unit.we = 1;
+                  memory_unit.wd = buffer2.q;
+                  input_state.d = input_state.START;
+            
+              input_state.START:
+                  memory_unit.waddr = h51C;
+                  memory_unit.we = 1;
+                  memory_unit.wd = buffers.q;
+                  input_state.d = input_state.RESTART;
+            
+              input_state.RESTART:
+                  memory_unit.waddr = h520;
+                  memory_unit.we = 1;
+                  memory_unit.wd = bufferr.q;
+                  input_state.d = input_state.FOOD;
+            
+              input_state.FOOD:
+                  memory_unit.waddr = h524;
+                  memory_unit.we = 1;
+                  food.next = 1;
+                  memory_unit.wd = c{22b0, food.num[9:0]};
+                  input_state.d = input_state.INPUT1;
+            motherboard.d = motherboard.RUN;
+    }}
+    
+    // connect user inputs to buffer
+    if (|button_in1){
+      if (button_in1[0]){
+            buffer1.d = h00000000;
+      }
+      else if (button_in1[1]){
+            buffer1.d = h00000001;
+      }
+      else if (button_in1[2]){
+            buffer1.d = h00000002;
+      }
+      else if (button_in1[3]){
+            buffer1.d = h00000003;
+      }
+    }
+    if (|button_in2){
+      if (button_in2[0]){
+            buffer2.d = h00000000;
+      }
+      else if (button_in2[1]){
+            buffer2.d = h00000001;
+      }
+      else if (button_in2[2]){
+            buffer2.d = h00000002;
+      }
+      else if (button_in2[3]){
+            buffer2.d = h00000003;
+      }
+    }
+    buffers.d = start_game;
+    bufferr.d = start_game;
+    
+    led_strip.color = LEDCOLOR[memory_unit.mrd[2:0]];
+    // output values
+    output_buffer = system_output_buffer.q;
+    input_buffer[4:0] = buffer1.q[4:0];
+    input_buffer[7:6] = buffer2.q[1:0];
+    input_buffer[15:8] = food.num[7:0];
+    input_buffer[5] = start_game;
+    ia = beta.ia;
+    id = memory_unit.id;
+    ma = beta.mem_data_address;
+    mrd = memory_unit.mrd;
+    mwd = beta.mem_data_output;
+    debug = beta.debug;
+    led_data = current_data.q;
+
+  }
+}
